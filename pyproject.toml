@@ -1,0 +1,18 @@
+[project]
+name = "GIS_Tools"
+version = "1.0.0"
+description = "Hiresolution Aerial Ortho Images, LAS, DSM creation tools"
+author = "Brian Davis (bb6)"
+
+dependencies = [
+    "Pillow",
+    "numpy",
+    "rasterio"
+]
+
+[tool.lichtfeld]
+auto_start = true
+hot_reload = true
+plugin_api = ">=1,<2"
+lichtfeld_version = ">=0.5.1"
+required_features = []

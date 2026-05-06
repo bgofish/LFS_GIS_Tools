@@ -1,0 +1,198 @@
+<rml>
+<body data-model="viewport_export_panel">
+<div id="content-wrap"><div id="content">
+
+  <!-- Status bar -->
+  <div data-if="has_status">
+    <span class="{{status_class}}">{{status_text}}</span>
+    <div class="separator"></div>
+  </div>
+
+  <!-- ══ VIEWPORT EXPORT ══════════════════════════════════════════════════ -->
+  <span class="section-label" style="color: #4A90D9;">Viewport Export</span>
+
+  <div class="setting-row">
+    <span class="prop-label">Resolution</span>
+    <select data-value="resolution_idx">
+      <option value="0">Viewport</option>
+      <option value="1">1080p</option>
+      <option value="2">4K</option>
+      <option value="3">8K</option>
+    </select>
+  </div>
+  <span class="text-muted">{{resolution_hint}}</span>
+
+  <div class="setting-row">
+    <span class="prop-label">Format</span>
+    <select data-value="format_idx">
+      <option value="0">JPG</option>
+      <option value="1">PNG</option>
+    </select>
+  </div>
+
+  <!-- JPG quality (only when JPG selected) -->
+  <div data-if="is_jpg">
+    <div class="setting-row">
+      <span class="prop-label">JPG Quality</span>
+      <input type="range" class="setting-slider" data-value="quality_str"
+             min="1" max="100" step="1" />
+      <input type="text" class="number-input" data-value="quality_str" />
+    </div>
+  </div>
+
+  <!-- PNG compression + transparency (only when PNG selected) -->
+  <div data-if="is_png">
+    <div class="setting-row">
+      <span class="prop-label">PNG Compression (0–9)</span>
+      <input type="range" class="setting-slider" data-value="png_compress_str"
+             min="0" max="9" step="1" />
+      <input type="text" class="number-input" data-value="png_compress_str" />
+    </div>
+    <div class="setting-row">
+      <input type="checkbox" data-value="transparency"
+             data-attrif-checked="transparency"
+             title="Capture black-bg and white-bg frames then extract RGBA via BW2A." />
+      <span>Transparency (RGBA via BW2A)</span>
+    </div>
+    <div data-if="transparency">
+      <span class="text-muted">  Captures black bg + white bg → BW2A alpha</span>
+    </div>
+  </div>
+
+  <div class="btn-row">
+    <button class="btn btn--full" data-event-click="do_export"
+            title="Export the current viewport to a file.">Export {{fmt_label}}</button>
+  </div>
+  <span class="text-muted">{{convention_label}}</span>
+
+  <div class="separator"></div>
+
+  <!-- ══ ORTHO / PLAN EXPORT ═════════════════════════════════════════════ -->
+  <span class="section-label" style="color: #4A90D9;">Ortho / Plan Export (8K)</span>
+
+  <div class="btn-row">
+    <button class="btn" data-event-click="do_read_cropbox"
+            title="Set Ortho Plan View.">Set Ortho Plan View</button>
+  </div>
+  <div data-if="has_cropbox">
+    <span class="text-muted">  X: {{crop_x_label}}</span><br/>
+    <span class="text-muted">  Z: {{crop_z_label}}</span>
+  </div>
+  <div data-if="no_cropbox">
+    <span class="text-muted">  (no cropbox read yet)</span>
+  </div>
+
+  <div class="separator"></div>
+
+  <span class="prop-label">Coords TXT (Easting / Northing)</span>
+  <div class="btn-row">
+    <button class="btn" data-event-click="do_browse_coords"
+            title="Select a coordinate TXT file containing the scene origin easting and northing.">Browse Coords TXT…</button>
+  </div>
+  <div data-if="has_coord_txt">
+    <span class="text-muted">  {{coord_txt_name}}</span>
+  </div>
+  <div data-if="no_coord_txt">
+    <span class="text-muted">  (none — world file skipped)</span>
+  </div>
+
+  <div class="setting-row">
+    <span class="prop-label">Resolution</span>
+    <select data-value="ortho_res_idx">
+      <option value="0">Screen</option>
+      <option value="1">1080p</option>
+      <option value="2">4K</option>
+      <option value="3">8K</option>
+    </select>
+  </div>
+
+  <div class="setting-row">
+    <input type="checkbox" data-value="ortho_alpha"
+           data-attrif-checked="ortho_alpha"
+           title="Capture black-bg and white-bg frames then extract RGBA via BW2A." />
+    <span>Alpha (RGBA via BW2A)</span>
+  </div>
+  <div data-if="ortho_alpha">
+    <span class="text-muted">  Captures black bg + white bg → BW2A alpha</span>
+  </div>
+
+  <div class="btn-row">
+    <button class="btn btn--full" data-event-click="do_ortho_export"
+            title="Export an 8K top-down ortho PNG of the cropbox area.">Export Ortho PNG</button>
+  </div>
+
+  <div class="separator"></div>
+
+  <!-- ══ TILED ORTHO EXPORT ══════════════════════════════════════════════ -->
+  <span class="section-label" style="color: #4A90D9;">Tiled Ortho Export</span>
+  <span class="text-muted">  Native viewport resolution — no interpolation. Requires cropbox.</span>
+
+  <div class="setting-row">
+    <span class="prop-label">Scale (px / m)</span>
+    <input type="text" class="number-input" data-value="tile_px_per_m_str" />
+  </div>
+  <span class="text-muted">{{tile_info_label}}</span>
+
+  <div class="btn-row">
+    <button class="btn btn--full" data-event-click="do_tile_export"
+            title="Export tiled ortho PNGs at the given px/m. Named _R01C01.png etc.">
+      Export Tiled Ortho</button>
+  </div>
+  <div data-if="tile_active">
+    <span class="text-muted">  ⏳ Tiled export running…</span>
+  </div>
+
+  <div class="separator"></div>
+
+  <!-- ══ MOSAIC FROM TILES ════════════════════════════════════════════════ -->
+  <span class="section-label" style="color: #4A90D9;">Mosaic from Tiles</span>
+  <span class="text-muted">  Joins R##C## tile PNGs into one georeferenced image.</span>
+
+  <div class="setting-row">
+    <span class="prop-label">Format</span>
+    <select data-value="mosaic_format_idx">
+      <option value="0">GeoTIFF (.tif)</option>
+      <option value="1">JPEG2000 (.jp2)</option>
+    </select>
+  </div>
+
+  <div class="setting-row">
+    <span class="prop-label">EPSG code</span>
+    <input type="text" class="number-input" data-value="mosaic_epsg_str"
+           title="Auto-filled from coord TXT first token. e.g. 32630 = UTM30N." />
+  </div>
+
+  <div class="setting-row">
+    <input type="checkbox" data-value="mosaic_crop"
+           data-attrif-checked="mosaic_crop"
+           title="Crop the assembled mosaic to the loaded cropbox extents." />
+    <span>Crop to cropbox extents</span>
+  </div>
+
+  <div class="setting-row">
+    <input type="checkbox" data-value="mosaic_use_last_dir"
+           data-attrif-checked="mosaic_use_last_dir"
+           title="Use the folder from the most recent tiled export automatically." />
+    <span>Use last export folder</span>
+  </div>
+  <span class="text-muted">{{mosaic_tile_dir_label}}</span>
+
+  <div data-if="mosaic_show_browse">
+    <div class="btn-row">
+      <button class="btn" data-event-click="do_browse_tile_dir"
+              title="Select the folder containing R##C## tile PNGs and .pgw world files.">
+        Browse tile folder…</button>
+    </div>
+  </div>
+
+  <div class="btn-row">
+    <button class="btn btn--full" data-event-click="do_mosaic"
+            title="Assemble all R##C## tile PNGs into one georeferenced mosaic.">
+      Build Mosaic</button>
+  </div>
+  <div data-if="mosaic_running">
+    <span class="text-muted">  ⏳ Mosaic assembly running…</span>
+  </div>
+</div></div>
+</body>
+</rml>
