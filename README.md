@@ -10,22 +10,11 @@ assembly of tiles into georeferenced GeoTIFF or JPEG2000 mosaics.
 
 | Package | Purpose | Install |
 |---|---|---|
-| `numpy` | Array capture | bundled with lichtfeld |
-| `Pillow` | Image save | bundled with lichtfeld |
-| `rasterio` | GeoTIFF / JPEG2000 mosaic write | `pip install rasterio` |
+| `numpy` | Array capture | |
+| `Pillow` | Image save |  |
+| `rasterio` | GeoTIFF / JPEG2000 mosaic write | |
 
 > `rasterio` is only required for the **Mosaic** step. Tiled PNG export works without it.
-
----
-
-## Files
-
-```
-export_panel.py   — panel logic (Python)
-export_panel.rml  — panel UI layout (RML)
-```
-
-Place both files in your lichtfeld Studio panels directory and reload panels.
 
 ---
 
@@ -200,19 +189,6 @@ tl_northing = origin_N  - model_cz + (tile_height_px / 2) × m/px
 
 ---
 
-## Build History
-
-| Build | Date | Notes |
-|---|---|---|
-| `2026-05-06o` | 2026-05-06 | Base build uploaded |
-| `2026-05-06p` | 2026-05-06 | Camera no longer restored after ortho export |
-| `2026-05-06r` | 2026-05-06 | Tiled export: rotation fix, zero overlap, scale verified |
-| `2026-05-06s` | 2026-05-06 | Mosaic: GeoTIFF / JPEG2000, crop to cropbox |
-| `2026-05-06t` | 2026-05-06 | EPSG auto-fill from coord TXT; "Use last export folder" checkbox |
-| `2026-05-06u` | 2026-05-06 | **Scale fix**: FOV derived by scaling live extent reading, not from ORTHO_EYE_H assumption |
-
----
-
 ## Troubleshooting
 
 **Wrong scale / overlap in tiles**
@@ -225,9 +201,6 @@ tl_northing = origin_N  - model_cz + (tile_height_px / 2) × m/px
 **Tiles rotated 180°**
 - Should not occur from build `r` onward. If seen, check that
   `_mirror_lr` and `_rotate180` are both defined (they are module-level helpers).
-
-**Mosaic fails with `No module named rasterio`**
-- Run `pip install rasterio` in lichtfeld's Python environment and restart.
 
 **EPSG field is blank**
 - The coord TXT first token must be a bare integer (e.g. `32725`).
