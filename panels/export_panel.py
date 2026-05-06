@@ -48,7 +48,7 @@ from PIL import Image
 
 import lichtfeld as lf
 
-lf.log.info("[GIS_Tools] *** Version 0.1.0 BUILD 2026-05-07v LOADED ***")
+lf.log.info("[GIS_Tools] *** Version 0.1.1 BUILD 2026-05-07v LOADED ***")
 
 # ── Version detection ─────────────────────────────────────────────────────────
 def _parse_version(v: str) -> tuple:
