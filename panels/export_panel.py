@@ -1,5 +1,15 @@
 """GIS_Tools panel — JPG/PNG export with optional BW2A alpha extraction."""
-# *** BUILD 2026-05-06u ***
+# *** BUILD 2026-05-07v ***
+# vs 2026-05-06u:
+#   v1. px/m floor lowered from 0.01 to 1e-9 so arbitrarily small scales are accepted.
+#       Format changed from .4g to .6g to show more significant figures.
+#   v2. FOV cap detection: when requested px/m would require FOV > ~170 deg (the
+#       engine silently clamps, causing the 0.08298755 m/px ceiling), an explicit
+#       error is raised with the max achievable px/m at the current zoom and
+#       instructions to zoom out before reading the cropbox.
+#   v3. _notify_tile_complete(): Windows balloon notification (NotifyIcon via
+#       System.Windows.Forms) fires when the tiled mosaic export finishes.
+#       No extra packages needed. Silently skipped on non-Win32.
 # vs 2026-05-06o:
 #   p1. Camera NOT restored after ortho export (stays where user left it).
 #   r1. Tiled ortho export at user-defined px/m (R##C## PNGs + .pgw world files).
@@ -38,7 +48,7 @@ from PIL import Image
 
 import lichtfeld as lf
 
-lf.log.info("[GIS_Tools] *** Version 0.1.0 BUILD 2026-05-06 LOADED ***")
+lf.log.info("[GIS_Tools] *** Version 0.1.0 BUILD 2026-05-07v LOADED ***")
 
 # ── Version detection ─────────────────────────────────────────────────────────
 def _parse_version(v: str) -> tuple:
@@ -61,8 +71,8 @@ ORTHO_RESOLUTIONS = [
     ("8K",      4320),
 ]
 _SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-ORTHO_EYE_H = 1000.0
-
+ORTHO_EYE_H = 200.0
+# ORTHO_EYE_H = 1000.0
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -226,6 +236,41 @@ def _write_world_file(png_path, tl_e, tl_n, pixel_size):
         f.write(f"{tl_e:.4f}\n")
         f.write(f"{tl_n:.4f}\n")
     return pgw_path
+
+
+def _notify_tile_complete(n_tiles: int, out_dir: str) -> None:
+    """Show a Windows balloon notification when tiled export finishes.
+
+    Uses the Win32 NotifyIcon API via System.Windows.Forms (no extra packages).
+    Silently skipped on non-Win32 platforms.
+    """
+    if sys.platform != "win32":
+        return
+    title_ps   = "GIS_Tools — Tiled Export Complete"
+    message_ps = f"{n_tiles} tiles saved to:`n{out_dir}"
+    # Escape single-quotes for PowerShell string
+    title_ps   = title_ps.replace("'", "'")
+    message_ps = message_ps.replace("'", "'")
+    ps_script = f"""
+Add-Type -AssemblyName System.Windows.Forms
+$notify = New-Object System.Windows.Forms.NotifyIcon
+$notify.Icon = [System.Drawing.SystemIcons]::Information
+$notify.BalloonTipIcon  = [System.Windows.Forms.ToolTipIcon]::Info
+$notify.BalloonTipTitle = '{title_ps}'
+$notify.BalloonTipText  = '{message_ps}'
+$notify.Visible = $true
+$notify.ShowBalloonTip(8000)
+Start-Sleep -Milliseconds 9000
+$notify.Dispose()
+"""
+    try:
+        subprocess.Popen(
+            ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps_script],
+            creationflags=_SUBPROCESS_FLAGS,
+        )
+        lf.log.info("[ViewportExport] tile-complete notification sent")
+    except Exception as _ne:
+        lf.log.warn(f"[ViewportExport] notification failed: {_ne}")
 
 
 # ── Panel ─────────────────────────────────────────────────────────────────────
@@ -788,8 +833,8 @@ class ViewportExportPanel(lf.ui.Panel):
         # Tile bindings
         model.bind(
             "tile_px_per_m_str",
-            lambda: f"{self._tile_px_per_m:.4g}",
-            lambda v: (setattr(self, "_tile_px_per_m", max(0.01, float(v))),
+            lambda: f"{self._tile_px_per_m:.6g}",
+            lambda v: (setattr(self, "_tile_px_per_m", max(1e-9, float(v))),
                        self._dirty("tile_px_per_m_str", "tile_info_label")),
         )
         model.bind_func("tile_info_label", self._tile_info_label)
@@ -1422,6 +1467,8 @@ class ViewportExportPanel(lf.ui.Panel):
             "mosaic_tile_dir_label",
         )
         lf.log.info(f"[ViewportExport] tiled export done: {n} tiles in {out_dir}")
+        # ── Completion notification ────────────────────────────────────────────────────────
+        _notify_tile_complete(n, out_dir)
 
     def _do_tile_export(self):
         """
@@ -1476,6 +1523,31 @@ class ViewportExportPanel(lf.ui.Panel):
         cur_half_tan    = math.tan(math.radians(cur_fov_deg / 2.0))
         new_half_tan    = cur_half_tan * (target_extent / cur_extent)
         tile_fov_deg    = math.degrees(2.0 * math.atan(new_half_tan))
+
+        # Warn if FOV exceeds lichtfeld's practical orthographic limit (~170 deg).
+        # This happens when target_m_per_px > cur_m_per_px (zooming OUT), i.e.
+        # the user wants fewer pixels per metre than the current cropbox view.
+        # Values above ~170 deg will be silently clamped by the engine, causing the
+        # actual scale to cap (the ~0.08298755 m/px symptom).
+        _MAX_FOV = 170.0
+        if tile_fov_deg > _MAX_FOV:
+            actual_half_tan = math.tan(math.radians(_MAX_FOV / 2.0))
+            actual_extent   = (actual_half_tan / cur_half_tan) * cur_extent
+            actual_m_per_px = actual_extent / vp_h
+            actual_px_m     = 1.0 / actual_m_per_px
+            self._set_status(
+                f"Requested {px_m:.5g} px/m requires FOV {tile_fov_deg:.1f}\u00b0 which exceeds "
+                f"the engine limit (~{_MAX_FOV:.0f}\u00b0). "
+                f"Max achievable at current zoom: \u2248{actual_px_m:.5g} px/m. "
+                f"Zoom OUT further (scroll back) before clicking 'Set Ortho Plan View', "
+                f"then retry.",
+                error=True,
+            )
+            lf.log.error(
+                f"[ViewportExport] tile FOV {tile_fov_deg:.2f}\u00b0 exceeds engine limit "
+                f"(\u2248{_MAX_FOV:.0f}\u00b0) \u2014 max px/m at current zoom \u2248 {actual_px_m:.5g}"
+            )
+            return
 
         tile_w_m = vp_w * target_m_per_px
         tile_h_m = vp_h * target_m_per_px
