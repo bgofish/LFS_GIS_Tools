@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Gaussian Splat Viewer — QGIS Plugin Help</title>
+<style>
+  body { font-family: sans-serif; max-width: 780px; margin: 2rem auto; line-height: 1.6; color: #222; }
+  h1 { color: #2e6da4; } h2 { color: #3a7abf; border-bottom: 1px solid #ddd; padding-bottom: .3em; }
+  code { background: #f4f4f4; padding: 2px 5px; border-radius: 3px; font-size: .9em; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border: 1px solid #ccc; padding: .4em .8em; text-align: left; }
+  th { background: #eef3f8; }
+  .note { background: #fff8e1; border-left: 4px solid #f9a825; padding: .6em 1em; margin: 1em 0; }
+</style>
+</head>
+<body>
+<h1>Gaussian Splat Viewer</h1>
+<p>A QGIS 3.x plugin for importing, georeferencing, and visualizing
+<strong>3D Gaussian Splatting</strong> scenes on the QGIS map canvas.</p>
+
+<h2>Workflow</h2>
+<ol>
+  <li><strong>Import</strong> — Load a <code>.ply</code> or <code>.splat</code> file.</li>
+  <li><strong>Georeference</strong> — Set the CRS, real-world origin, scale, and bearing.</li>
+  <li><strong>Visualize</strong> — Render the scene to a GeoTIFF raster layer.</li>
+</ol>
+
+<h2>Supported File Formats</h2>
+<table>
+  <tr><th>Extension</th><th>Format</th><th>Notes</th></tr>
+  <tr><td><code>.ply</code></td><td>3DGS standard PLY</td><td>Produced by gaussian-splatting, nerfstudio, etc.</td></tr>
+  <tr><td><code>.splat</code></td><td>Binary packed</td><td>antimatter15 / SuperSplat viewer format (32 bytes/gaussian)</td></tr>
+</table>
+
+<h2>Georeferencing Parameters</h2>
+<table>
+  <tr><th>Parameter</th><th>Description</th></tr>
+  <tr><td>CRS</td><td>Output coordinate reference system (e.g. EPSG:2193 NZTM, EPSG:4326 WGS84)</td></tr>
+  <tr><td>Origin X / Y</td><td>The geographic coordinate that corresponds to the scene's local (0,0,0)</td></tr>
+  <tr><td>Scale</td><td>Metres per scene unit. If your scene was captured in metres, use 1.0</td></tr>
+  <tr><td>Bearing correction</td><td>Clockwise degrees from north to the scene's +X axis</td></tr>
+  <tr><td>Z offset</td><td>Vertical shift in metres applied after scaling</td></tr>
+</table>
+
+<h2>Render Settings</h2>
+<table>
+  <tr><th>Setting</th><th>Description</th></tr>
+  <tr><td>Resolution</td><td>Pixel size in CRS units. Smaller = sharper but slower.</td></tr>
+  <tr><td>Max gaussians</td><td>Subsample cap for performance. 200k is a good start.</td></tr>
+  <tr><td>View axis</td><td>Z = top-down (default for maps). X/Y for elevation sections.</td></tr>
+</table>
+
+<div class="note">
+  <strong>Performance tip:</strong> For scenes with &gt;500k gaussians, increase the resolution
+  value (coarser pixels) or reduce Max gaussians until you get a feel for the georeferencing,
+  then do a final high-res render.
+</div>
+
+<h2>Known Limitations</h2>
+<ul>
+  <li>Rendering is CPU-based. Very large scenes (&gt;1M gaussians) may take several minutes.</li>
+  <li>The 2D canvas visualizer projects in orthographic top-down view. Perspective rendering
+      requires the QGIS 3D Map View (future work).</li>
+  <li>Spherical harmonics above DC term are not used for canvas rendering (colour is DC-only).</li>
+</ul>
+
+<h2>Source &amp; Issues</h2>
+<p><a href="https://github.com/yourname/gaussian-splat-qgis">github.com/yourname/gaussian-splat-qgis</a></p>
+</body>
+</html>
