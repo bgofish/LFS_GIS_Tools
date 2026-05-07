@@ -1,5 +1,11 @@
 """GIS_Tools panel — JPG/PNG export with optional BW2A alpha extraction."""
-# *** BUILD 2026-05-07v ***
+# *** BUILD 2026-05-07w ***
+# vs 2026-05-07v:
+#   w1. Tile BW2A alpha: "Alpha (RGBA via BW2A)" checkbox added to Tiled Ortho Export.
+#       When enabled each tile does a 5-sub-step BW2A capture (black bg → capture →
+#       white bg → capture → restore → compute RGBA) instead of a single RGB capture.
+#       The draw-handler sub_step field (0-4) is nested inside the existing step-0/1/2
+#       state machine.  World files and .pgw georeferencing are unchanged.
 # vs 2026-05-06u:
 #   v1. px/m floor lowered from 0.01 to 1e-9 so arbitrarily small scales are accepted.
 #       Format changed from .4g to .6g to show more significant figures.
@@ -48,7 +54,7 @@ from PIL import Image
 
 import lichtfeld as lf
 
-lf.log.info("[GIS_Tools] *** Version 0.1.1 BUILD 2026-05-07v LOADED ***")
+lf.log.info("[GIS_Tools] *** Version 0.1.0 BUILD 2026-05-07w LOADED ***")
 
 # ── Version detection ─────────────────────────────────────────────────────────
 def _parse_version(v: str) -> tuple:
@@ -317,6 +323,7 @@ class ViewportExportPanel(lf.ui.Panel):
 
         # ── Tiled export ──────────────────────────────────────────────────────
         self._tile_px_per_m  = 10.0
+        self._tile_alpha     = False   # BW2A per-tile alpha
         self._last_tile_dir  = ""
         self._tile_state: dict = {
             "active":            False,
@@ -337,6 +344,12 @@ class ViewportExportPanel(lf.ui.Panel):
             "centre_e":          None,
             "centre_n":          None,
             "verified_m_per_px": None,
+            # BW2A sub-step fields (used when tile_alpha is True)
+            "tile_alpha":       False,
+            "sub_step":         0,     # 0=RGB only; 1=set-black; 2=cap-black; 3=set-white; 4=cap-white
+            "bw2a_black":       None,
+            "bw2a_white":       None,
+            "bw2a_orig_bg":     None,
         }
 
         # ── Mosaic ────────────────────────────────────────────────────────────
@@ -719,7 +732,7 @@ class ViewportExportPanel(lf.ui.Panel):
             "has_cropbox", "no_cropbox", "crop_x_label", "crop_z_label",
             "has_coord_txt", "no_coord_txt", "coord_txt_name",
             "convention_label",
-            "tile_px_per_m_str", "tile_info_label", "tile_active",
+            "tile_px_per_m_str", "tile_info_label", "tile_active", "tile_alpha",
             "mosaic_format_idx", "mosaic_crop", "mosaic_epsg_str",
             "mosaic_use_last_dir", "mosaic_tile_dir_label",
             "mosaic_running", "mosaic_show_browse",
@@ -836,6 +849,12 @@ class ViewportExportPanel(lf.ui.Panel):
             lambda: f"{self._tile_px_per_m:.6g}",
             lambda v: (setattr(self, "_tile_px_per_m", max(1e-9, float(v))),
                        self._dirty("tile_px_per_m_str", "tile_info_label")),
+        )
+        model.bind(
+            "tile_alpha",
+            lambda: self._tile_alpha,
+            lambda v: (setattr(self, "_tile_alpha", bool(v)),
+                       self._dirty("tile_alpha")),
         )
         model.bind_func("tile_info_label", self._tile_info_label)
         model.bind_func("tile_active",     lambda: self._tile_state["active"])
@@ -1375,7 +1394,7 @@ class ViewportExportPanel(lf.ui.Panel):
             s["step"] = 2
             return
 
-        # step 2: capture, save, advance
+        # step 2: capture (RGB) or BW2A sub-steps, save, advance
         if s["step"] == 2:
             idx = s["tile_idx"]
             row, col, cx, cz = s["tiles"][idx]
@@ -1385,6 +1404,120 @@ class ViewportExportPanel(lf.ui.Panel):
             path_stem = s["path_stem"]
             out_dir   = s["out_dir"]
 
+            # ── BW2A sub-steps ────────────────────────────────────────────────
+            if s["tile_alpha"]:
+                rs = lf.get_render_settings()
+
+                # sub_step 1: save bg, set black
+                if s["sub_step"] == 1:
+                    s["bw2a_orig_bg"] = rs.background_color
+                    rs.background_color = (0.0, 0.0, 0.0)
+                    s["sub_step"] = 2
+                    return   # wait one frame
+
+                # sub_step 2: capture black, set white
+                elif s["sub_step"] == 2:
+                    arr = _capture_arr()
+                    if arr is None:
+                        rs.background_color = s["bw2a_orig_bg"]
+                        self._set_status(f"Tile BW2A black-bg capture failed at R{row:02d}C{col:02d}", error=True)
+                        s["active"] = False
+                        lf.remove_draw_handler("viewport_export.tile")
+                        self._dirty("tile_active", "has_status", "status_text", "status_class")
+                        return
+                    s["bw2a_black"] = _mirror_lr(_rotate180(arr))
+                    rs.background_color = (1.0, 1.0, 1.0)
+                    s["sub_step"] = 3
+                    return   # wait one frame
+
+                # sub_step 3: capture white, restore bg, compute RGBA, save
+                elif s["sub_step"] == 3:
+                    arr = _capture_arr()
+                    if arr is None:
+                        rs.background_color = s["bw2a_orig_bg"]
+                        self._set_status(f"Tile BW2A white-bg capture failed at R{row:02d}C{col:02d}", error=True)
+                        s["active"] = False
+                        lf.remove_draw_handler("viewport_export.tile")
+                        self._dirty("tile_active", "has_status", "status_text", "status_class")
+                        return
+                    bw2a_white = _mirror_lr(_rotate180(arr))
+                    rs.background_color = s["bw2a_orig_bg"]
+                    s["sub_step"] = 0   # reset for next tile
+
+                    try:
+                        b_arr = (s["bw2a_black"][..., :3] * 255.0).clip(0, 255).astype(float) if s["bw2a_black"].dtype != float else s["bw2a_black"][..., :3]
+                        w_arr = (bw2a_white[..., :3] * 255.0).clip(0, 255).astype(float)
+                        # bw2a_black was stored as float32 [0,1] — scale to [0,255]
+                        b_u8  = (s["bw2a_black"][..., :3] * 255.0).clip(0, 255).astype(float)
+                        w_u8  = (bw2a_white[..., :3]      * 255.0).clip(0, 255).astype(float)
+                        alpha     = np.clip(1.0 - np.mean(w_u8 - b_u8, axis=2) / 255.0, 0.0, 1.0)
+                        recovered = np.clip(b_u8 / (alpha[:, :, np.newaxis] + 1e-10), 0, 255).astype(np.uint8)
+                        alpha_u8  = (alpha * 255).astype(np.uint8)
+                        arr_rgba  = np.dstack((recovered, alpha_u8))
+
+                        # On first tile verify scale
+                        if idx == 0:
+                            try:
+                                _v          = lf.get_current_view()
+                                extent      = float(_v.ortho_view_extent_world)
+                                cap_h       = arr_rgba.shape[0]
+                                m_px_actual = extent / cap_h
+                                s["verified_m_per_px"] = m_px_actual
+                                s["tile_w_m"] = arr_rgba.shape[1] * m_px_actual
+                                s["tile_h_m"] = cap_h * m_px_actual
+                                req_m_per_px = 1.0 / s["tile_px_per_m"]
+                                lf.log.info(
+                                    f"[ViewportExport] tile BW2A scale: "
+                                    f"requested {req_m_per_px:.6f} m/px  "
+                                    f"actual {m_px_actual:.6f} m/px"
+                                )
+                            except Exception as _ve:
+                                lf.log.warn(f"[ViewportExport] tile BW2A: could not verify scale: {_ve}")
+
+                        m_per_px = (s["verified_m_per_px"]
+                                    if s["verified_m_per_px"] is not None
+                                    else 1.0 / s["tile_px_per_m"])
+
+                        img      = Image.fromarray(arr_rgba, "RGBA")
+                        tile_tag = f"R{row:02d}C{col:02d}"
+                        out_path = str(Path(out_dir) / f"{path_stem}_{tile_tag}.png")
+                        img.save(out_path, "PNG")
+                        lf.log.info(f"[ViewportExport] tile BW2A {tile_tag} ({idx+1}/{n_total}) → {out_path}")
+
+                        if centre_e is not None:
+                            tile_w_px, tile_h_px = img.size
+                            tl_e = centre_e - cx - (tile_w_px / 2.0) * m_per_px
+                            tl_n = centre_n - cz + (tile_h_px / 2.0) * m_per_px
+                            _write_world_file(out_path, tl_e, tl_n, m_per_px)
+
+                        self._set_status(
+                            f"Tile {tile_tag} α  {idx+1}/{n_total}  ({m_per_px:.5f} m/px)",
+                            warning=True)
+                        self._dirty("has_status", "status_text", "status_class")
+
+                    except Exception as e:
+                        import traceback as _tb
+                        lf.log.error(f"[ViewportExport] tile BW2A error: {e}\n{_tb.format_exc()}")
+                        self._set_status(f"Tile BW2A error at R{row:02d}C{col:02d}: {e}", error=True)
+                        s["active"] = False
+                        lf.remove_draw_handler("viewport_export.tile")
+                        self._dirty("tile_active", "has_status", "status_text", "status_class")
+                        return
+
+                    # advance to next tile
+                    s["tile_idx"] += 1
+                    if s["tile_idx"] >= len(s["tiles"]):
+                        self._tile_finish()
+                    else:
+                        s["step"] = 0
+                    return
+
+                else:
+                    # sub_step == 0: kick off BW2A sequence on this frame
+                    s["sub_step"] = 1
+                    return
+
+            # ── Standard RGB capture (tile_alpha == False) ────────────────────
             try:
                 arr = _capture_arr()
                 if arr is None:
@@ -1619,11 +1752,17 @@ class ViewportExportPanel(lf.ui.Panel):
             "centre_e":          centre_e,
             "centre_n":          centre_n,
             "verified_m_per_px": None,
+            "tile_alpha":        self._tile_alpha,
+            "sub_step":          0,
+            "bw2a_black":        None,
+            "bw2a_white":        None,
+            "bw2a_orig_bg":      None,
         })
 
         lf.add_draw_handler("viewport_export.tile", self._tile_draw_handler)
+        _alpha_tag = "  [BW2A α]" if self._tile_alpha else ""
         self._set_status(
-            f"Tiled export: {n_rows}R × {n_cols}C = {len(tiles)} tiles "
+            f"Tiled export{_alpha_tag}: {n_rows}R × {n_cols}C = {len(tiles)} tiles "
             f"@ {px_m:.4g} px/m  ({target_m_per_px:.5f} m/px)  "
             f"tile {tile_w_m:.1f}×{tile_h_m:.1f}m",
             warning=True,
