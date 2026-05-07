@@ -1,6 +1,6 @@
 [project]
 name = "GIS_Tools"
-version = "0.1.3"
+version = "0.1.4"
 description = "Hiresolution Aerial Ortho Images, Planned: LAS, DSM creation tools"
 author = "Brian Davis (bb6)"
 
