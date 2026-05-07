@@ -1,5 +1,5 @@
 """GIS_Tools panel — JPG/PNG export with optional BW2A alpha extraction."""
-# *** BUILD 2026-05-07x ***
+# *** BUILD 2026-05-08 ***
 # vs 2026-05-07v:
 #   x1. Alpha (BW2A) per-tile checkbox. Fixed double float32->uint8 scale bug.
 #   x2. Abort button + Escape key (Win32 ctypes hook).
@@ -26,7 +26,7 @@
 #       BEFORE starting tiles, derive current m/px, then scale the live FOV
 #       proportionally to hit the requested px/m exactly.  This eliminates the
 #       ~2× scale error seen when using 25 px/m (0.08 m/px instead of 0.04).
-#       Requires: rasterio  (pip install rasterio)
+#       Requires: rasterio  
 #   1. World file top-left no longer re-reads lf.get_camera() after the finally
 #      block has restored the original camera.  Previously, when the user had
 #      panned/zoomed away from model origin, the restored (original) cam.target
@@ -47,13 +47,13 @@ import subprocess
 import sys
 import threading
 from pathlib import Path
-
 import numpy as np
 from PIL import Image
+from rasterio.enums import ColorInterp
 
 import lichtfeld as lf
 
-lf.log.info("[GIS_Tools] *** Version 0.1.0 BUILD 2026-05-07x LOADED ***")
+lf.log.info("[GIS_Tools] *** Version 0.1.4 BUILD 2026-05-08 LOADED ***")
 
 # ── Version detection ─────────────────────────────────────────────────────────
 def _parse_version(v: str) -> tuple:
@@ -252,7 +252,7 @@ def _notify_tile_complete(n_tiles: int, out_dir: str) -> None:
     if sys.platform != "win32":
         return
     title_ps   = "GIS_Tools — Tiled Export Complete"
-    message_ps = f"{n_tiles} tiles saved to:`n{out_dir}"
+    message_ps = f"{n_tiles} tiles saved to:`{out_dir}"
     # Escape single-quotes for PowerShell string
     title_ps   = title_ps.replace("'", "'")
     message_ps = message_ps.replace("'", "'")
@@ -276,7 +276,61 @@ $notify.Dispose()
         lf.log.info("[ViewportExport] tile-complete notification sent")
     except Exception as _ne:
         lf.log.warn(f"[ViewportExport] notification failed: {_ne}")
+        
+# ── Panel ─────────────────────────────────────────────────────────────────────
+def _1notify_tile_complete(n_tiles: int, out_dir: str) -> None: # TRIAL ONLY DELETE IF NOT WORKING
+    """Show a modern Windows Toast notification with a clickable folder link."""
+    if sys.platform != "win32":
+        return
 
+    title_ps   = "GIS_Tools — Tiled Export Complete"
+    message_ps = f"{n_tiles} tiles saved to folder."
+    
+    # Escape single-quotes for the PowerShell XML block
+    title_ps   = title_ps.replace("'", "''")
+    message_ps = message_ps.replace("'", "''")
+    out_dir_ps = out_dir.replace("'", "''")
+
+    # This script uses the Windows Runtime (WinRT) via PowerShell to create a Toast
+    ps_script = f"""
+$ErrorActionPreference = 'Stop'
+[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
+
+$template = @"
+<toast>
+    <visual>
+        <binding template="ToastGeneric">
+            <text>{title_ps}</text>
+            <text>{message_ps}</text>
+        </binding>
+    </visual>
+    <actions>
+        <action content="Open Folder" arguments="file:///{out_dir_ps}" activationType="protocol"/>
+    </actions>
+</toast>
+"@
+
+$xml = New-Object Windows.Data.Xml.Dom.XmlDocument
+$xml.LoadXml($template)
+$toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
+
+# Setting expiration to 4 seconds. Note: Windows typically defaults to a 
+# 5-second minimum for accessibility reasons.
+$toast.ExpirationTime = [DateTimeOffset]::Now.AddSeconds(4)
+
+# "Python" acts as the AppID for the notification
+[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("Python").Show($toast)
+"""
+    try:
+        # Use subprocess to run the PowerShell script silently
+        subprocess.Popen(
+            ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps_script],
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000),
+        )
+        print("[ViewportExport] tile-complete notification sent")
+    except Exception as _ne:
+        print(f"[ViewportExport] notification failed: {_ne}")
 
 # ── Panel ─────────────────────────────────────────────────────────────────────
 
@@ -2051,9 +2105,33 @@ class ViewportExportPanel(lf.ui.Panel):
                                    interleave="band", **common_kw) as dst:
                     dst.write(bands)
             else:
-                with rasterio.open(out_path, "w", driver="JP2OpenJPEG",
-                                   **common_kw) as dst:
+
+                # Ensure all required metadata is present and correctly typed
+                common_kw = {
+                    'driver': 'JP2OpenJPEG',
+                    'dtype': bands.dtype,
+                    'nodata': None,
+                    'width': int(bands.shape[2]),   # Must be int
+                    'height': int(bands.shape[1]),  # Must be int
+                    'count': int(bands.shape[0]),   # Must be int
+                    'crs': crs,                     # Use CRS
+                    'transform': transform,         # Required for georeferencing
+                    'ALPHA': 'YES',                 # Driver-specific setting for alpha
+                    'YCC': 'NO',                    # Prevents weird color shifts on 4-band data
+                    'REVERSIBLE': 'YES'             # Use lossless to prevent compression artifacts in Alpha
+                }
+
+                with rasterio.open(out_path, "w", **common_kw) as dst:
                     dst.write(bands)
+                    # EXPLICITLY set the band roles to prevent the greyscale default
+                    dst.colorinterp = [
+                        ColorInterp.red, 
+                        ColorInterp.green, 
+                        ColorInterp.blue, 
+                        ColorInterp.alpha
+                    ]
+
+
 
             size_mb = Path(out_path).stat().st_size / 1_048_576
             self._set_status(
@@ -2072,3 +2150,4 @@ class ViewportExportPanel(lf.ui.Panel):
     def _set_status(self, msg, *, success=False, warning=False, error=False):
         self._status = msg
         self._dirty("has_status", "status_text", "status_class")
+        
