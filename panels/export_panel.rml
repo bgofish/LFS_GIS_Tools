@@ -133,23 +133,27 @@
   </div>
   <span class="text-muted">{{tile_info_label}}</span>
 
-  <div class="setting-row">
+  <div data-ifnot="tile_running" class="setting-row">
     <input type="checkbox" data-value="tile_alpha"
            data-attrif-checked="tile_alpha"
-           title="Capture black-bg and white-bg frames per tile then extract RGBA via BW2A." />
+           title="Capture black-bg and white-bg frames per tile, then extract RGBA via BW2A." />
     <span>Alpha (RGBA via BW2A)</span>
   </div>
   <div data-if="tile_alpha">
-    <span class="text-muted">  Each tile: black bg + white bg → BW2A RGBA (2× slower)</span>
+    <span class="text-muted">  Each tile: 2 captures → BW2A RGBA (≈2× slower)</span>
   </div>
 
-  <div class="btn-row">
+  <div data-ifnot="tile_running" class="btn-row">
     <button class="btn btn--full" data-event-click="do_tile_export"
             title="Export tiled ortho PNGs at the given px/m. Named _R01C01.png etc.">
       Export Tiled Ortho</button>
   </div>
-  <div data-if="tile_active">
+  <div data-if="tile_running" style="display:flex; align-items:center; gap:8px; margin-top:4px;">
     <span class="text-muted">  ⏳ Tiled export running…</span>
+    <button class="btn" data-event-click="do_abort_tile_export"
+            style="background:#7a1e1e; color:#ffaaaa; border-color:#aa3333; padding:2px 10px;"
+            title="Stop the tiled export immediately (also: press Escape)">
+      ✕ Abort</button>
   </div>
 
   <div class="separator"></div>
