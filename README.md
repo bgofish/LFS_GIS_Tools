@@ -5,6 +5,9 @@ viewport, with support for tiled exports at a precise ground resolution and
 assembly of tiles into georeferenced GeoTIFF or JPEG2000 mosaics.
 
 ---
+**Known Issues:**
+
+(1) "[]Tiled Export Runniung.. [][Abort]" displayed on opening: needs to be 'hidden' until required.  Hides once tiling is completed succesfully & then behaves as intended.
 
 ## Requirements
 
