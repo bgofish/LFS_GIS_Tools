@@ -75,7 +75,7 @@ Each tile is captured at native viewport resolution.
 
 **How Pix/m scale is set:**
 
-lichtfeld's internal camera FOV is limite to ~6.9° and view coverage is dependent of `ORTHO_EYE_H` so if eye is too high: limits pixels/m and too low clips the model. As this is dependant on the users monitor resolution Its easier to see limits in the file:
+lichtfeld's internal camera FOV is limite to ~6.9° and view coverage is dependent of `ORTHO_EYE_H` so if eye is too high: limits pixels/m and too low clips the model. As this is dependant on the users monitor resolution Its easier to see limits in the file: [ ORTHO IMAGE](https://github.com/bgofish/LFS_GIS_Tools/blob/main/help/ORTHO-IMAGE.xlsx) 
 
 **On the first tile**, the actual extent is read back and logged, so any
 residual error is recorded and world files use the verified value.
