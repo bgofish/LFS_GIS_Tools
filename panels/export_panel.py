@@ -1,8 +1,8 @@
 """GIS_Tools panel — JPG/PNG export with optional BW2A alpha extraction."""
-# *** BUILD 2026-05-08 ***
+# *** BUILD 2026-05-08c ***
 # vs 2026-05-07v:
 #   x1. Alpha (BW2A) per-tile checkbox. Fixed double float32->uint8 scale bug.
-#   x2. Abort button + Escape key (Win32 ctypes hook).
+#   x2. Abort buttons + Escape key (Win32 ctypes hook).
 #   x3. Cold-open RML fix: abort row uses tile_running (bind_func, starts False)
 #       instead of tile_active to avoid unbound-key=truthy at first render.
 # vs 2026-05-06u:
@@ -21,7 +21,7 @@
 #   s1. Mosaic from tiles → GeoTIFF or JPEG2000 with optional cropbox crop.
 #   t1. _read_coord_txt parses EPSG from first token; auto-fills EPSG field.
 #   t2. "Use last export folder" checkbox in Mosaic section.
-#   u1. SCALE FIX: tile FOV no longer computed from ORTHO_EYE_H assumption.
+#   u1. SCALE FIX: tile FOV no longer computed from self._ortho_eye_h assumption.
 #       Instead we measure ortho_view_extent_world at the current cropbox zoom
 #       BEFORE starting tiles, derive current m/px, then scale the live FOV
 #       proportionally to hit the requested px/m exactly.  This eliminates the
@@ -53,7 +53,7 @@ from rasterio.enums import ColorInterp
 
 import lichtfeld as lf
 
-lf.log.info("[GIS_Tools] *** Version 0.1.4 BUILD 2026-05-08 LOADED ***")
+lf.log.info("[GIS_Tools] *** Version 0.1.6 BUILD 2026-05-08c LOADED ***")
 
 # ── Version detection ─────────────────────────────────────────────────────────
 def _parse_version(v: str) -> tuple:
@@ -76,8 +76,7 @@ ORTHO_RESOLUTIONS = [
     ("8K",      4320),
 ]
 _SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-ORTHO_EYE_H = 200.0
-# ORTHO_EYE_H = 1000.0
+# self._ortho_eye_h removed — now self._ortho_eye_h (user slider, 100-1000m, step 20)
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -277,6 +276,24 @@ $notify.Dispose()
     except Exception as _ne:
         lf.log.warn(f"[ViewportExport] notification failed: {_ne}")
         
+def _open_folder(path: str) -> None:
+    """Open a folder in the system file manager (Win/Mac/Linux)."""
+    import subprocess
+    try:
+        if sys.platform == "win32":
+            subprocess.Popen(
+                ["explorer", path],
+                creationflags=_SUBPROCESS_FLAGS,
+            )
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", path])
+        else:
+            subprocess.Popen(["xdg-open", path])
+        lf.log.info(f"[ViewportExport] opened folder: {path}")
+    except Exception as _e:
+        lf.log.warn(f"[ViewportExport] open folder failed: {_e}")
+
+
 # ── Panel ─────────────────────────────────────────────────────────────────────
 def _1notify_tile_complete(n_tiles: int, out_dir: str) -> None: # TRIAL ONLY DELETE IF NOT WORKING
     """Show a modern Windows Toast notification with a clickable folder link."""
@@ -353,7 +370,10 @@ class ViewportExportPanel(lf.ui.Panel):
         self._png_compress = 6
         self._transparency = False
         self._status = ""
-        self._ortho_coord_txt = ""
+        self._ortho_coord_txt    = ""
+        self._ortho_eye_h        = 200.0   # user-adjustable, 100-1000m step 20
+        self._coord_txt_line1    = ""       # first line of coords TXT for display
+        self._last_ortho_out     = ""       # path of last ortho PNG saved
         self._ortho_alpha = False
         self._ortho_res_idx = 3
 
@@ -379,6 +399,7 @@ class ViewportExportPanel(lf.ui.Panel):
         self._tile_alpha          = False
         self._tile_key_hook_active = False
         self._last_tile_dir       = ""
+        self._last_mosaic_out     = ""   # path of last mosaic file saved
         self._tile_state: dict = {
             "active":            False,
             "step":              0,
@@ -411,6 +432,7 @@ class ViewportExportPanel(lf.ui.Panel):
         self._mosaic_use_last_dir = True
         self._mosaic_tile_dir     = ""
         self._mosaic_running      = False
+        self._mosaic_abort        = False
 
         self._ortho_bw2a_state = {
             "step": 0,
@@ -654,6 +676,7 @@ class ViewportExportPanel(lf.ui.Panel):
                 # FIX 4: explicit RGBA before save → PIL writes colour-type 6
                 img = img.convert("RGBA")
                 img.save(path, "PNG")
+                self._last_ortho_out = path
                 lf.log.info(f"[ViewportExport] ortho RGBA PNG -> {path}")
 
                 # World file
@@ -697,7 +720,7 @@ class ViewportExportPanel(lf.ui.Panel):
                         f"Alpha (BW2A): yes\n",
                         f"Export size:  {cropped_w} x {cropped_h} px\n\n",
                         f"Camera FOV:   {orig_fov:.4f} deg\n",
-                        f"Eye height:   {ORTHO_EYE_H:.1f} m (fixed)\n\n",
+                        f"Eye height:   {self._ortho_eye_h:.1f} m (fixed)\n\n",
                     ]
                     if use_crop:
                         _lines += [
@@ -782,12 +805,12 @@ class ViewportExportPanel(lf.ui.Panel):
             "quality_str", "png_compress_str",
             "transparency", "ortho_alpha",
             "has_cropbox", "no_cropbox", "crop_x_label", "crop_z_label",
-            "has_coord_txt", "no_coord_txt", "coord_txt_name",
+            "has_coord_txt", "no_coord_txt", "coord_txt_name", "coord_txt_line1", "has_coord_txt_line1", "ortho_has_output", "ortho_eye_h_str",
             "convention_label",
-            "tile_px_per_m_str", "tile_info_label", "tile_active", "tile_running", "tile_alpha",
+            "tile_px_per_m_str", "tile_info_label", "tile_active", "tile_running", "tile_not_running", "tile_alpha", "tile_has_folder",
             "mosaic_format_idx", "mosaic_crop", "mosaic_epsg_str",
             "mosaic_use_last_dir", "mosaic_tile_dir_label",
-            "mosaic_running", "mosaic_show_browse",
+            "mosaic_running", "mosaic_not_running", "mosaic_has_output", "mosaic_show_browse",
         )
 
     def _status_class(self) -> str:
@@ -871,6 +894,17 @@ class ViewportExportPanel(lf.ui.Panel):
         model.bind_func("no_coord_txt",   lambda: not bool(self._ortho_coord_txt))
         model.bind_func("coord_txt_name", lambda: (
             Path(self._ortho_coord_txt).name if self._ortho_coord_txt else ""))
+        model.bind_func("coord_txt_line1", lambda: self._coord_txt_line1)
+        model.bind_func("has_coord_txt_line1", lambda: bool(self._coord_txt_line1))
+        model.bind_func("ortho_has_output", lambda: bool(self._last_ortho_out))
+        model.bind(
+            "ortho_eye_h_str",
+            lambda: str(int(self._ortho_eye_h)),
+            lambda v: (setattr(self, "_ortho_eye_h",
+                               float(max(100, min(1000,
+                               round(float(v) / 20) * 20)))),
+                       self._dirty("ortho_eye_h_str")),
+        )
 
         model.bind(
             "ortho_alpha",
@@ -890,10 +924,14 @@ class ViewportExportPanel(lf.ui.Panel):
         model.bind_event("do_set_topdown",      self._on_set_topdown)
         model.bind_event("do_read_cropbox",     self._on_read_cropbox)
         model.bind_event("do_browse_coords",    self._on_browse_coords)
-        model.bind_event("do_ortho_export",     self._on_do_ortho_export)
+        model.bind_event("do_ortho_export",      self._on_do_ortho_export)
+        model.bind_event("do_open_ortho_folder",  self._on_open_ortho_folder)
         model.bind_event("do_tile_export",      self._on_do_tile_export)
         model.bind_event("do_abort_tile_export", self._on_do_abort_tile_export)
-        model.bind_event("do_browse_tile_dir",  self._on_browse_tile_dir)
+        model.bind_event("do_browse_tile_dir",       self._on_browse_tile_dir)
+        model.bind_event("do_open_tile_folder",      self._on_open_tile_folder)
+        model.bind_event("do_open_mosaic_folder",    self._on_open_mosaic_folder)
+        model.bind_event("do_abort_mosaic",          self._on_do_abort_mosaic)
         model.bind_event("do_mosaic",           self._on_do_mosaic)
 
         # Tile bindings
@@ -915,7 +953,9 @@ class ViewportExportPanel(lf.ui.Panel):
         # initialises to False at bind time — prevents the cold-open unbound-key
         # = truthy bug where data-if="tile_active" would show the abort row on
         # first render before the model key is evaluated.
-        model.bind_func("tile_running",    lambda: self._tile_state["active"])
+        model.bind_func("tile_running",     lambda: self._tile_state["active"])
+        model.bind_func("tile_not_running",  lambda: not self._tile_state["active"])
+        model.bind_func("tile_has_folder",   lambda: bool(self._last_tile_dir))
 
         # Mosaic bindings
         model.bind(
@@ -946,7 +986,9 @@ class ViewportExportPanel(lf.ui.Panel):
         model.bind_func("mosaic_show_browse",
                         lambda: not self._mosaic_use_last_dir)
         model.bind_func("mosaic_tile_dir_label", self._mosaic_tile_dir_label)
-        model.bind_func("mosaic_running", lambda: self._mosaic_running)
+        model.bind_func("mosaic_running",     lambda: self._mosaic_running)
+        model.bind_func("mosaic_not_running",  lambda: not self._mosaic_running)
+        model.bind_func("mosaic_has_output",   lambda: bool(self._last_mosaic_out))
 
         self._handle = model.get_handle()
 
@@ -969,6 +1011,12 @@ class ViewportExportPanel(lf.ui.Panel):
         p = _open_dialog("Select Coordinate TXT", "Text files (*.txt)|*.txt")
         if p:
             self._ortho_coord_txt = p
+            # Store first line for display
+            try:
+                with open(p, encoding="utf-8", errors="replace") as _f:
+                    self._coord_txt_line1 = _f.readline().rstrip()
+            except Exception:
+                self._coord_txt_line1 = ""
             try:
                 _e, _n, epsg = _read_coord_txt(p)
                 if epsg:
@@ -976,7 +1024,17 @@ class ViewportExportPanel(lf.ui.Panel):
                     lf.log.info(f"[ViewportExport] coord txt EPSG auto-fill: {epsg}")
             except Exception as _ex:
                 lf.log.warn(f"[ViewportExport] could not auto-fill EPSG: {_ex}")
-        self._dirty("has_coord_txt", "no_coord_txt", "coord_txt_name", "mosaic_epsg_str")
+        self._dirty("has_coord_txt", "no_coord_txt", "coord_txt_name",
+                    "coord_txt_line1", "mosaic_epsg_str")
+
+    def _on_open_ortho_folder(self, handle, event, args):
+        """Open the folder containing the last saved ortho PNG."""
+        path = self._last_ortho_out
+        if not path or not Path(path).exists():
+            self._set_status("No ortho output to open yet.", warning=True)
+            self._dirty("has_status", "status_text", "status_class")
+            return
+        _open_folder(str(Path(path).parent))
 
     def _on_do_ortho_export(self, handle, event, args):
         self._do_ortho_export()
@@ -999,6 +1057,33 @@ class ViewportExportPanel(lf.ui.Panel):
             pp = Path(p)
             self._mosaic_tile_dir = str(pp.parent if pp.is_file() else pp)
         self._dirty("mosaic_tile_dir_label", "mosaic_show_browse")
+
+    def _on_open_tile_folder(self, handle, event, args):
+        """Open the last tiled export folder in Windows Explorer."""
+        folder = self._last_tile_dir
+        if not folder or not Path(folder).exists():
+            self._set_status("No tile folder to open yet.", warning=True)
+            self._dirty("has_status", "status_text", "status_class")
+            return
+        _open_folder(folder)
+
+    def _on_open_mosaic_folder(self, handle, event, args):
+        """Open the folder containing the last saved mosaic file."""
+        path = self._last_mosaic_out
+        if not path or not Path(path).exists():
+            self._set_status("No mosaic output to open yet.", warning=True)
+            self._dirty("has_status", "status_text", "status_class")
+            return
+        _open_folder(str(Path(path).parent))
+
+    def _on_do_abort_mosaic(self, handle, event, args):
+        """Signal the mosaic worker thread to stop (best-effort)."""
+        if not self._mosaic_running:
+            return
+        self._mosaic_abort = True
+        self._set_status("Mosaic abort requested…", warning=True)
+        self._dirty("has_status", "status_text", "status_class")
+        lf.log.info("[ViewportExport] mosaic abort requested")
 
     def _on_do_mosaic(self, handle, event, args):
         self._do_mosaic()
@@ -1063,7 +1148,7 @@ class ViewportExportPanel(lf.ui.Panel):
             t   = cam.target
             lf.set_orthographic(False)
             lf.set_camera(
-                eye    = (float(t[0]), float(t[1]) + ORTHO_EYE_H, float(t[2])),
+                eye    = (float(t[0]), float(t[1]) + self._ortho_eye_h, float(t[2])),
                 target = (float(t[0]), float(t[1]),                float(t[2])),
                 up     = (0.0, 0.0, 1.0),
             )
@@ -1106,12 +1191,12 @@ class ViewportExportPanel(lf.ui.Panel):
 
         crop_h  = self._crop_zmax - self._crop_zmin
         half_h  = crop_h / 2.0
-        fov_deg = math.degrees(2.0 * math.atan(half_h / ORTHO_EYE_H))
+        fov_deg = math.degrees(2.0 * math.atan(half_h / self._ortho_eye_h))
 
         def _apply_camera():
             lf.set_orthographic(False)
             lf.set_camera(
-                eye    = (cx, ground_y + ORTHO_EYE_H, -cz),
+                eye    = (cx, ground_y + self._ortho_eye_h, -cz),
                 target = (cx, ground_y, -cz),
                 up     = (0.0, 0.0, 1.0),
             )
@@ -1120,7 +1205,7 @@ class ViewportExportPanel(lf.ui.Panel):
 
         lf.ui.schedule_on_ui_thread(_apply_camera)
 
-        _hh = math.tan(math.radians(fov_deg / 2)) * ORTHO_EYE_H
+        _hh = math.tan(math.radians(fov_deg / 2)) * self._ortho_eye_h
         lf.log.info(
             f"[ViewportExport] zoomed  cx={cx:.3f} cz={cz:.3f} fov={fov_deg:.4f}  "
             f"crop {self._crop_xmax - self._crop_xmin:.2f} x {crop_h:.2f} m"
@@ -1183,7 +1268,7 @@ class ViewportExportPanel(lf.ui.Panel):
             self._set_status("Ortho: positioning camera...", warning=True)
             if use_crop:
                 lf.set_camera(
-                    eye    = (ortho_cx, ground_y + ORTHO_EYE_H, -ortho_cz),
+                    eye    = (ortho_cx, ground_y + self._ortho_eye_h, -ortho_cz),
                     target = (ortho_cx, ground_y, -ortho_cz),
                     up     = (0.0, 0.0, 1.0),
                 )
@@ -1248,7 +1333,7 @@ class ViewportExportPanel(lf.ui.Panel):
                 def _start_capture():
                     if _use_crop:
                         lf.set_camera(
-                            eye    = (_cx, _gy + ORTHO_EYE_H, -_cz),
+                            eye    = (_cx, _gy + self._ortho_eye_h, -_cz),
                             target = (_cx, _gy, -_cz),
                             up     = (0.0, 0.0, 1.0),
                         )
@@ -1316,6 +1401,7 @@ class ViewportExportPanel(lf.ui.Panel):
                 lf.log.info(f"[ViewportExport] no crop — full viewport {cropped_w}x{cropped_h}")
 
             img.save(path, "PNG")
+            self._last_ortho_out = path
             lf.log.info(f"[ViewportExport] ortho PNG -> {path}  pixel_size={pixel_size:.8f} m/px")
 
             # ── World file ────────────────────────────────────────────────────
@@ -1363,7 +1449,7 @@ class ViewportExportPanel(lf.ui.Panel):
                     lt.write(f"Alpha (BW2A): {'yes' if self._ortho_alpha else 'no'}\n")
                     lt.write(f"Export size:  {cropped_w} x {cropped_h} px\n\n")
                     lt.write(f"Camera FOV:   {orig_fov:.4f} deg\n")
-                    lt.write(f"Eye height:   {ORTHO_EYE_H:.1f} m (fixed)\n\n")
+                    lt.write(f"Eye height:   {self._ortho_eye_h:.1f} m\n\n")
                     if use_crop:
                         lt.write("Cropbox extents (metres):\n")
                         lt.write(f"  xmin: {self._crop_xmin:.4f} m\n")
@@ -1422,7 +1508,7 @@ class ViewportExportPanel(lf.ui.Panel):
         self._stop_tile_key_hook()
         msg = f"Tile export ABORTED after {n_done}/{n_total} tiles."
         self._set_status(msg, warning=True)
-        self._dirty("tile_active", "tile_running",
+        self._dirty("tile_active", "tile_running", "tile_not_running",
                     "has_status", "status_text", "status_class")
         lf.log.info(f"[ViewportExport] {msg}")
 
@@ -1459,14 +1545,14 @@ class ViewportExportPanel(lf.ui.Panel):
         m_per_px = 1.0 / px_m if px_m > 0 else 1.0
         crop_w   = self._crop_xmax - self._crop_xmin
         crop_h   = self._crop_zmax - self._crop_zmin
-        vp_hint_w, vp_hint_h = 1920, 1080
+        vp_hint_w, vp_hint_h = 2000, 1500
         tile_w_m = vp_hint_w * m_per_px
         tile_h_m = vp_hint_h * m_per_px
         cols = math.ceil(crop_w / tile_w_m)
         rows = math.ceil(crop_h / tile_h_m)
         return (
             f"  {px_m:.4g} px/m  →  {m_per_px:.5f} m/px  "
-            f"≈ {rows}R × {cols}C = {rows*cols} tiles  "
+            f"≈ est. {rows}R × est. {cols}C = Approx. {rows*cols} tiles  "
             f"(tile ≈{tile_w_m:.0f}×{tile_h_m:.0f}m at ~{vp_hint_w}×{vp_hint_h}px)"
         )
 
@@ -1489,7 +1575,7 @@ class ViewportExportPanel(lf.ui.Panel):
             def _cam():
                 lf.set_orthographic(False)
                 lf.set_camera(
-                    eye    = (cx, ground_y + ORTHO_EYE_H, -cz),
+                    eye    = (cx, ground_y + self._ortho_eye_h, -cz),
                     target = (cx, ground_y,                -cz),
                     up     = (0.0, 0.0, 1.0),
                 )
@@ -1718,7 +1804,8 @@ class ViewportExportPanel(lf.ui.Panel):
         self._set_status(
             f"Tiled export complete — {n} tiles saved  →  {out_dir}", success=True)
         self._dirty(
-            "tile_active", "tile_running", "has_status", "status_text", "status_class",
+            "tile_active", "tile_running", "tile_not_running", "tile_has_folder",
+            "has_status", "status_text", "status_class",
             "mosaic_tile_dir_label",
         )
         lf.log.info(f"[ViewportExport] tiled export done: {n} tiles in {out_dir}")
@@ -1728,7 +1815,7 @@ class ViewportExportPanel(lf.ui.Panel):
     def _do_tile_export(self):
         """
         KEY SCALE FIX (build u):
-        Rather than computing FOV from ORTHO_EYE_H (which gave 2× error), we:
+        Rather than computing FOV from self._ortho_eye_h (which gave 2× error), we:
           1. Read the CURRENT camera FOV and ortho_view_extent_world (at cropbox zoom)
           2. Derive current m/px from extent / vp_h
           3. Scale the FOV proportionally: new_extent = target_m/px × vp_h
@@ -1954,7 +2041,8 @@ class ViewportExportPanel(lf.ui.Panel):
             out_path += ext
 
         self._mosaic_running = True
-        self._dirty("mosaic_running", "has_status", "status_text", "status_class")
+        self._dirty("mosaic_running", "mosaic_not_running",
+                    "has_status", "status_text", "status_class")
         self._set_status("Mosaic: assembling tiles…", warning=True)
 
         def _run():
@@ -1964,9 +2052,11 @@ class ViewportExportPanel(lf.ui.Panel):
                     epsg_str, centre_e, centre_n,
                     crop_xmin, crop_xmax, crop_zmin, crop_zmax,
                 )
+                self._last_mosaic_out = out_path
             finally:
                 self._mosaic_running = False
-                self._dirty("mosaic_running", "has_status", "status_text", "status_class")
+                self._dirty("mosaic_running", "mosaic_not_running",
+                            "mosaic_has_output", "has_status", "status_text", "status_class")
 
         threading.Thread(target=_run, daemon=True).start()
 
