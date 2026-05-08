@@ -7,9 +7,9 @@ assembly of tiles into georeferenced GeoTIFF or JPEG2000 mosaics.
 ---
 **Known Issues:**
 
-(1) "[]Tiled Export Runniung.. [][Abort]" displayed on opening: needs to be 'hidden' until required.  Hides once tiling is completed succesfully & then behaves as intended.
+(1) Camera eye height added to allow flexibility in the images capture as  too high - limits pixels/m and too low clips the model. As this is dependant on the users monitor resolution 
 
-## Requirements
+## Requirements (Installed with the Plugin):
 
 | Package | Purpose | Install |
 |---|---|---|
@@ -17,15 +17,13 @@ assembly of tiles into georeferenced GeoTIFF or JPEG2000 mosaics.
 | `Pillow` | Image save |  |
 | `rasterio` | GeoTIFF / JPEG2000 mosaic write | |
 
-> `rasterio` is only required for the **Mosaic** step. Tiled PNG export works without it.
-
 ---
 
 ## Workflow Overview
 
 ```
-1. Set top-down view        (Set Top-Down button)
-2. Load cropbox             (Read Cropbox)
+1. Apply a crop to your Model to suit (can be entire model).
+2. Load cropbox             (Set Ortho Plan View)
 3. Load coord TXT           (Browse… in Ortho Export section)
 4. Export tiles             (Tiled Ortho Export section)
 5. Build mosaic             (Mosaic from Tiles section)
@@ -35,33 +33,20 @@ assembly of tiles into georeferenced GeoTIFF or JPEG2000 mosaics.
 
 ## Panel Sections
 
-### Standard Viewport Export
-
-Export the current viewport as JPG or PNG at any supported resolution.
-
-| Control | Description |
-|---|---|
-| Resolution | Preset output heights (720p → 8K) or Native viewport |
-| Format | JPEG (with quality slider) or PNG (with compression level) |
-| Transparency | PNG only — enables alpha channel |
-| Export | Saves immediately; no dialog if a default path is set |
-
----
-
 ### Ortho Export
 
-Exports a single top-down PNG of the entire cropbox area at up to 8K resolution.
+Exports a single top-down PNG of the entire cropbox area at up to 8K resolution (Currently interpolated)
 
 **Setup:**
 
-1. Click **Set Top-Down** to align the camera directly overhead.
-2. Click **Read Cropbox** to read the scene's cropbox node — this sets the
+1. Create a Crop of the Model (Can be Full).
+2. Click **Set Ortho Plan View** to read the scene's cropbox node — this sets the
    camera to frame the full crop area and stores its extents for all
    subsequent exports.
 3. Optionally click **Browse…** to load a coordinate TXT file. This
    geo-references all exports (PNG world files, tile world files, mosaic embed).
 
-**Coord TXT format:**
+**Coord TXT format:  EGSG Code  Easting  Northing Elevation**
 
 ```
 32725 298153.29 m E  9207873.34 m N  60 m RL
