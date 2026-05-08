@@ -1,13 +1,13 @@
-# Viewport Export Panel — lichtfeld Studio
+# Viewport Export Panel — LichtFeld Studio
 
-A lichtfeld Studio panel for exporting top-down orthographic images from the
+A LichtFeld Studio Plugin for exporting top-down orthographic images from the
 viewport, with support for tiled exports at a precise ground resolution and
 assembly of tiles into georeferenced GeoTIFF or JPEG2000 mosaics.
 
 ---
 **Known Issues:**
 
-(1) Camera eye height added to allow flexibility in the images capture as  too high - limits pixels/m and too low clips the model. As this is dependant on the users monitor resolution 
+(1) Camera eye height added to allow flexibility in the images capture as if its too high: limits pixels/m ; and too low clips the model. This is dependant on the users monitor resolution 
 
 ## Requirements (Installed with the Plugin):
 
