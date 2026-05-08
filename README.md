@@ -54,8 +54,8 @@ Exports a single top-down PNG of the entire cropbox area at up to 8K resolution 
 
 - First token: EPSG code (auto-fills the Mosaic EPSG field)
 - `298153.29 m E` — easting of the model origin in the given CRS
-- `9207873.34 m N` — northing (use `N` or `S`)
-- `60 m RL` — reduced level (ignored)
+- `9207873.34 m N` — northing (can use `N` or `S` as Google Earth uses)
+- `60 m RL` — reduced level (ignored for images but used for LAS/DEM - when enabled)
 
 **Options:**
 
