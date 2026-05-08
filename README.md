@@ -73,18 +73,9 @@ Exports a grid of PNG tiles at a precise **pixels-per-metre** ground resolution,
 covering the full cropbox extent with zero overlap and no image interpolation.
 Each tile is captured at native viewport resolution.
 
-**How scale is set:**
+**How Pix/m scale is set:**
 
-Rather than computing a camera FOV from scratch (which would require knowing
-lichtfeld's internal projection constants), the panel:
-
-1. Reads the **current** `ortho_view_extent_world` and camera FOV (set by
-   Read Cropbox).
-2. Derives the current `m/px = extent / viewport_height`.
-3. Scales the FOV proportionally so the new extent matches `1/px_m × vp_height`.
-
-This is fully independent of `ORTHO_EYE_H` and exactly matches the scale
-lichtfeld's ortho projection produces.
+lichtfeld's internal camera FOV is limite to ~6.9° and view coverage is dependent of `ORTHO_EYE_H` so if eye is too high: limits pixels/m and too low clips the model. As this is dependant on the users monitor resolution Its easier to see limits in the file:
 
 **On the first tile**, the actual extent is read back and logged, so any
 residual error is recorded and world files use the verified value.
