@@ -46,7 +46,7 @@ Exports a single top-down PNG of the entire cropbox area at up to 8K resolution 
 3. Optionally click **Browse…** to load a coordinate TXT file. This
    geo-references all exports (PNG world files, tile world files, mosaic embed).
 
-**Coord TXT format:  EGSG Code  Easting  Northing Elevation**
+**Coord TXT format:  EPSG Code  Easting  Northing Elevation**
 
 ```
 32725 298153.29 m E  9207873.34 m N  60 m RL
