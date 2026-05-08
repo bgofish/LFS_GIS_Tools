@@ -1,4 +1,4 @@
-# Viewport Export Panel — LichtFeld Studio
+# GIS_Tools — LichtFeld Studio Plugin
 
 A LichtFeld Studio Plugin for exporting top-down orthographic images from the
 viewport, with support for tiled exports at a precise ground resolution and
