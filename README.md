@@ -98,8 +98,8 @@ residual error is recorded and world files use the verified value.
 ...
 ```
 
-Row numbering increases **southward** (first row = northernmost),
-column numbering increases **eastward**.
+Row numbering increases **northward** (first row = southernmost),
+column numbering increases **westward**.
 
 **Tips:**
 
