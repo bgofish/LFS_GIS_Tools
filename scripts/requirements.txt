@@ -1,0 +1,2 @@
+pyproj>=3.0
+tkinterdnd2>=0.3.0   # optional – enables drag-and-drop; app works without it
