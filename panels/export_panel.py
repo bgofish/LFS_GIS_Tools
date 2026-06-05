@@ -1,44 +1,6 @@
 """GIS_Tools panel — JPG/PNG export with optional BW2A alpha extraction."""
-# *** BUILD 2026-05-08c ***
-# vs 2026-05-07v:
-#   x1. Alpha (BW2A) per-tile checkbox. Fixed double float32->uint8 scale bug.
-#   x2. Abort buttons + Escape key (Win32 ctypes hook).
-#   x3. Cold-open RML fix: abort row uses tile_running (bind_func, starts False)
-#       instead of tile_active to avoid unbound-key=truthy at first render.
-# vs 2026-05-06u:
-#   v1. px/m floor lowered from 0.01 to 1e-9 so arbitrarily small scales are accepted.
-#       Format changed from .4g to .6g to show more significant figures.
-#   v2. FOV cap detection: when requested px/m would require FOV > ~170 deg (the
-#       engine silently clamps, causing the 0.08298755 m/px ceiling), an explicit
-#       error is raised with the max achievable px/m at the current zoom and
-#       instructions to zoom out before reading the cropbox.
-#   v3. _notify_tile_complete(): Windows balloon notification (NotifyIcon via
-#       System.Windows.Forms) fires when the tiled mosaic export finishes.
-#       No extra packages needed. Silently skipped on non-Win32.
-# vs 2026-05-06o:
-#   p1. Camera NOT restored after ortho export (stays where user left it).
-#   r1. Tiled ortho export at user-defined px/m (R##C## PNGs + .pgw world files).
-#   s1. Mosaic from tiles → GeoTIFF or JPEG2000 with optional cropbox crop.
-#   t1. _read_coord_txt parses EPSG from first token; auto-fills EPSG field.
-#   t2. "Use last export folder" checkbox in Mosaic section.
-#   u1. SCALE FIX: tile FOV no longer computed from self._ortho_eye_h assumption.
-#       Instead we measure ortho_view_extent_world at the current cropbox zoom
-#       BEFORE starting tiles, derive current m/px, then scale the live FOV
-#       proportionally to hit the requested px/m exactly.  This eliminates the
-#       ~2× scale error seen when using 25 px/m (0.08 m/px instead of 0.04).
-#       Requires: rasterio  
-#   1. World file top-left no longer re-reads lf.get_camera() after the finally
-#      block has restored the original camera.  Previously, when the user had
-#      panned/zoomed away from model origin, the restored (original) cam.target
-#      was used as the capture-centre offset → wrong TL coordinate.  Now
-#      ortho_cx / ortho_cz (computed before capture, always the actual centre of
-#      the exported image) are used directly.  "Zoom anywhere → Export" now
-#      produces a correctly geo-referenced world file.
-# Carried over from 2026-05-06j:
-#   j1. _write_world_file: pixel_size wrapped in abs().
-#   j2. pixel_size uses export_h not vp_h.
-#   j3. North convention: lichtfeld +Z = South, negated for northing.
-#   j4. img.convert("RGBA") before every PNG save → PIL colour-type 6.
+# *** BUILD 2026-06-05 ***
+# The Y-up vertical flip is needed from 0.5.1 until engine build 282 (need to confirm),
 
 import math
 import os
@@ -53,14 +15,22 @@ from rasterio.enums import ColorInterp
 
 import lichtfeld as lf
 
-lf.log.info("[GIS_Tools] *** Version 0.1.6 BUILD 2026-05-08c LOADED ***")
+lf.log.info("[GIS_Tools] *** Version 0.1.6 BUILD 2026-06-05 LOADED ***")
 
 # ── Version detection ─────────────────────────────────────────────────────────
 def _parse_version(v: str) -> tuple:
     parts = v.lstrip("v").split(".")[:3]
     return tuple(int(re.match(r"\d+", x).group()) for x in parts)
 
-Y_UP = _parse_version(lf.__version__) >= (0, 5, 1)
+def _parse_build(v: str) -> int:
+    """Extract the build number from a version string like '0.5.2-282-ged61c8a2'."""
+    m = re.search(r"-(\d+)-", v)
+    return int(m.group(1)) if m else 0
+
+# The Y-up vertical flip was needed from 0.5.1 until engine build 282,
+# which fixed the raw capture orientation at the renderer level.
+_build = _parse_build(lf.__version__)
+Y_UP = _parse_version(lf.__version__) >= (0, 5, 1) and _build < 282
 
 RESOLUTIONS = [
     ("Viewport", None),
@@ -138,14 +108,21 @@ def _snap2(n):
     return n if n % 2 == 0 else n + 1
 
 
-def _capture_arr():
-    """Capture the current viewport. Returns float32 array or None."""
+def _capture_arr(ortho=False):
+    """Capture the current viewport. Returns float32 array or None.
+
+    ortho=True: also applies the rotate-180 + mirror-LR needed for top-down
+    plan images.  All ortho capture sites should pass ortho=True so the
+    transform is applied in exactly one place.
+    """
     vp = lf.capture_viewport()
     if vp is None or vp.image is None:
         return None
     arr = np.asarray(vp.image.cpu().contiguous(), dtype=np.float32)
     if Y_UP:
         arr = np.flip(arr, axis=0).copy()
+    if ortho:
+        arr = _mirror_lr(_rotate180(arr))
     return arr
 
 
@@ -552,23 +529,23 @@ class ViewportExportPanel(lf.ui.Panel):
 
         elif s["step"] == 2:
             self._set_status("Ortho: capturing black bg...", warning=True)
-            arr = _capture_arr()
+            arr = _capture_arr(ortho=True)
             if arr is None:
                 self._set_status("Ortho: capture failed (black bg).", error=True)
                 self._ortho_bw2a_abort(rs)
                 return
-            s["black"] = _mirror_lr(_rotate180(arr))
+            s["black"] = arr
             rs.background_color = (1.0, 1.0, 1.0)
             s["step"] = 3
 
         elif s["step"] == 3:
             self._set_status("Ortho: capturing white bg...", warning=True)
-            arr = _capture_arr()
+            arr = _capture_arr(ortho=True)
             if arr is None:
                 self._set_status("Ortho: capture failed (white bg).", error=True)
                 self._ortho_bw2a_abort(rs)
                 return
-            s["white"] = _mirror_lr(_rotate180(arr))
+            s["white"] = arr
             rs.background_color = s["orig_bg"]
             s["step"] = 0
 
@@ -1345,11 +1322,10 @@ class ViewportExportPanel(lf.ui.Panel):
 
             # ── Standard RGB capture ──────────────────────────────────────────
             self._set_status("Ortho: capturing...", warning=True)
-            arr = _capture_arr()
+            arr = _capture_arr(ortho=True)
             if arr is None:
                 self._set_status("Ortho: capture failed.", error=True)
                 return
-            arr = _mirror_lr(_rotate180(arr))
             lf.log.info(f"[ViewportExport] captured  shape={arr.shape}")
 
             img = _arr_to_image(arr)
@@ -1613,7 +1589,7 @@ class ViewportExportPanel(lf.ui.Panel):
 
                 elif s["sub_step"] == 1:
                     # Capture black frame, go white, wait one frame
-                    arr = _capture_arr()
+                    arr = _capture_arr(ortho=True)
                     if arr is None:
                         rs.background_color = s["bw2a_orig_bg"]
                         s["bw2a_orig_bg"] = None
@@ -1625,14 +1601,14 @@ class ViewportExportPanel(lf.ui.Panel):
                         self._dirty("tile_active", "tile_running",
                                     "has_status", "status_text", "status_class")
                         return
-                    s["bw2a_black"] = _mirror_lr(_rotate180(arr))  # float32 [0,1]
+                    s["bw2a_black"] = arr  # already oriented via _capture_arr(ortho=True)
                     rs.background_color = (1.0, 1.0, 1.0)
                     s["sub_step"] = 2
                     return
 
                 elif s["sub_step"] == 2:
                     # Capture white frame, restore bg, compute RGBA, save
-                    arr = _capture_arr()
+                    arr = _capture_arr(ortho=True)
                     if arr is None:
                         rs.background_color = s["bw2a_orig_bg"]
                         s["bw2a_orig_bg"] = None
@@ -1644,7 +1620,7 @@ class ViewportExportPanel(lf.ui.Panel):
                         self._dirty("tile_active", "tile_running",
                                     "has_status", "status_text", "status_class")
                         return
-                    white_f32 = _mirror_lr(_rotate180(arr))  # float32 [0,1]
+                    white_f32 = arr  # already oriented via _capture_arr(ortho=True)
                     rs.background_color = s["bw2a_orig_bg"]
                     s["bw2a_orig_bg"] = None
                     s["sub_step"] = 0  # reset for next tile
@@ -1725,10 +1701,9 @@ class ViewportExportPanel(lf.ui.Panel):
             out_dir   = s["out_dir"]
 
             try:
-                arr = _capture_arr()
+                arr = _capture_arr(ortho=True)
                 if arr is None:
                     raise RuntimeError("capture_viewport returned None")
-                arr = _mirror_lr(_rotate180(arr))
 
                 # On first tile verify actual scale from ortho_view_extent_world
                 if idx == 0:
@@ -1913,7 +1888,9 @@ class ViewportExportPanel(lf.ui.Panel):
         for r in range(n_rows):
             for c in range(n_cols):
                 cx = crop_x_min + (c + 0.5) * tile_w_m
-                cz = crop_z_min + (r + 0.5) * tile_h_m
+                # Row 1 = northernmost = largest Z (lichtfeld +Z = South),
+                # so iterate rows from crop_z_max downward.
+                cz = crop_z_max - (r + 0.5) * tile_h_m
                 tiles.append((r + 1, c + 1, cx, cz))
 
         # ── Coords ────────────────────────────────────────────────────────────
