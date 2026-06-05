@@ -177,9 +177,8 @@ tl_northing = origin_N  - model_cz + (tile_height_px / 2) × m/px
 - Check the log for `tile scale:` lines — these show the requested vs actual
   m/px and the derived FOV.
 
-**Tiles rotated 180°**
-- Should not occur from build `r` onward. If seen, check that
-  `_mirror_lr` and `_rotate180` are both defined (they are module-level helpers).
+**Tile rows rotated 180°**
+- With the latest version 0.1.7 this should not occur from build `282` onward. If seen check that you are using the latest version.
 
 **EPSG field is blank**
 - The coord TXT first token must be a bare integer (e.g. `32725`).
