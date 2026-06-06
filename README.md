@@ -165,6 +165,9 @@ All world file top-left coordinates are derived as:
 tl_easting  = origin_E  - model_cx - (tile_width_px  / 2) × m/px
 tl_northing = origin_N  - model_cz + (tile_height_px / 2) × m/px
 ```
+ADDED TOOLS in  \scripts  Coord_Converter.py/bat is a standalone Python for converion of the RealityCapture XML. This script will automatically select all available coordinate systems for the lat/long you have provided. (as images dont care about RL just leave that as 0 for now)
+
+<img width="550" height="570" alt="image" src="https://github.com/user-attachments/assets/9a1766c1-d2eb-457a-9d65-70f1d24819fc" />
 
 ---
 
