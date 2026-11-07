@@ -29,8 +29,34 @@ def _parse_build(v: str) -> int:
 
 # The Y-up vertical flip was needed from 0.5.1 until engine build 282,
 # which fixed the raw capture orientation at the renderer level.
+_ver   = _parse_version(lf.__version__)
 _build = _parse_build(lf.__version__)
-Y_UP = _parse_version(lf.__version__) >= (0, 5, 1) and _build < 282
+
+# Version strings look like '0.5.2-282-ged61c8a2' (= 282 commits after tag 0.5.2).
+# A release such as '0.5.5' has NO '-N-' suffix, so _build parses as 0 — which
+# previously satisfied "_build < 282" and wrongly re-enabled the flip on every
+# release newer than 0.5.2 (tile/ortho exports came out vertically flipped).
+# The flip only applies to 0.5.1 and to 0.5.2 builds before 282.
+Y_UP = (
+    (0, 5, 1) <= _ver < (0, 5, 2)
+    or (_ver == (0, 5, 2) and _build < 282)
+)
+lf.log.info(
+    f"[GIS_Tools] lichtfeld version '{lf.__version__}' -> parsed {_ver} "
+    f"build {_build}  Y_UP flip={'ON' if Y_UP else 'OFF'}"
+)
+
+# ── Ortho vertical flip ───────────────────────────────────────────────────────
+# Older engine builds (<= 0.5.2) needed an extra vertical flip on top-down ortho
+# captures to give a north-up image that matches the .pgw world files.  On newer
+# releases (0.5.5 confirmed against an OSM basemap) the raw capture is already
+# north-up, so applying it mirrors the result north-south.
+#   None  = automatic (flip only on <= 0.5.2)
+#   True / False = force it on / off if a future engine build changes again
+ORTHO_FLIP_OVERRIDE = None
+ORTHO_FLIP_V = (_ver <= (0, 5, 2)) if ORTHO_FLIP_OVERRIDE is None else bool(ORTHO_FLIP_OVERRIDE)
+lf.log.info(f"[GIS_Tools] ortho vertical flip={'ON' if ORTHO_FLIP_V else 'OFF'}"
+            f"{' (forced)' if ORTHO_FLIP_OVERRIDE is not None else ' (auto)'}")
 
 RESOLUTIONS = [
     ("Viewport", None),
@@ -111,9 +137,9 @@ def _snap2(n):
 def _capture_arr(ortho=False):
     """Capture the current viewport. Returns float32 array or None.
 
-    ortho=True: also applies the rotate-180 + mirror-LR needed for top-down
-    plan images.  All ortho capture sites should pass ortho=True so the
-    transform is applied in exactly one place.
+    ortho=True: applies the vertical flip needed for top-down plan images on
+    older engine builds (see ORTHO_FLIP_V).  All ortho capture sites should
+    pass ortho=True so the transform is applied in exactly one place.
     """
     vp = lf.capture_viewport()
     if vp is None or vp.image is None:
@@ -121,8 +147,8 @@ def _capture_arr(ortho=False):
     arr = np.asarray(vp.image.cpu().contiguous(), dtype=np.float32)
     if Y_UP:
         arr = np.flip(arr, axis=0).copy()
-    if ortho:
-        arr = _mirror_lr(_rotate180(arr))
+    if ortho and ORTHO_FLIP_V:
+        arr = np.flip(arr, axis=0).copy()   # == _mirror_lr(_rotate180(arr))
     return arr
 
 
